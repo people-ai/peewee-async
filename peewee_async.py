@@ -263,11 +263,11 @@ class Manager:
             return (yield from self.get(model_, *query)), False
 
     @asyncio.coroutine
-    def execute(self, query):
+    def execute(self, query, *, timeout=None):
         """Execute query asyncronously.
         """
         query = self._swap_database(query)
-        return (yield from execute(query))
+        return (yield from execute(query, timeout=timeout))
 
     @asyncio.coroutine
     def prefetch(self, query, *subqueries):
@@ -280,22 +280,22 @@ class Manager:
         return (yield from prefetch(query, *subqueries))
 
     @asyncio.coroutine
-    def count(self, query, clear_limit=False):
+    def count(self, query, clear_limit=False, *, timeout=None):
         """Perform *COUNT* aggregated query asynchronously.
 
         :return: number of objects in ``select()`` query
         """
         query = self._swap_database(query)
-        return (yield from count(query, clear_limit=clear_limit))
+        return (yield from count(query, clear_limit=clear_limit, timeout=timeout))
 
     @asyncio.coroutine
-    def scalar(self, query, as_tuple=False):
+    def scalar(self, query, as_tuple=False, *, timeout=None):
         """Get single value from ``select()`` query, i.e. for aggregation.
 
         :return: result is the same as after sync ``query.scalar()`` call
         """
         query = self._swap_database(query)
-        return (yield from scalar(query, as_tuple=as_tuple))
+        return (yield from scalar(query, as_tuple=as_tuple, timeout=timeout))
 
     @asyncio.coroutine
     def connect(self):
@@ -413,7 +413,7 @@ class Manager:
 
 
 @asyncio.coroutine
-def execute(query):
+def execute(query, *, timeout=None):
     """Execute *SELECT*, *INSERT*, *UPDATE* or *DELETE* query asyncronously.
 
     :param query: peewee query instance created with ``Model.select()``,
@@ -431,7 +431,7 @@ def execute(query):
     else:
         coroutine = raw_query
 
-    return (yield from coroutine(query))
+    return (yield from coroutine(query, timeout=timeout))
 
 
 @asyncio.coroutine
@@ -565,14 +565,14 @@ def update_object(obj, only=None):
 
 
 @asyncio.coroutine
-def select(query):
+def select(query, *, timeout=None):
     """Perform SELECT query asynchronously.
     """
     assert isinstance(query, peewee.SelectQuery),\
         ("Error, trying to run select coroutine"
          "with wrong query class %s" % str(query))
 
-    cursor = yield from _execute_query_async(query)
+    cursor = yield from _execute_query_async(query, timeout=timeout)
 
     result = AsyncQueryWrapper(cursor=cursor, query=query)
 
@@ -589,14 +589,14 @@ def select(query):
 
 
 @asyncio.coroutine
-def insert(query):
+def insert(query, *, timeout=None):
     """Perform INSERT query asynchronously. Returns last insert ID.
     """
     assert isinstance(query, peewee.InsertQuery),\
         ("Error, trying to run insert coroutine"
          "with wrong query class %s" % str(query))
 
-    cursor = yield from _execute_query_async(query)
+    cursor = yield from _execute_query_async(query, timeout=timeout)
 
     try:
         if query.is_insert_returning:
@@ -614,14 +614,14 @@ def insert(query):
 
 
 @asyncio.coroutine
-def update(query):
+def update(query, *, timeout=None):
     """Perform UPDATE query asynchronously. Returns number of rows updated.
     """
     assert isinstance(query, peewee.UpdateQuery),\
         ("Error, trying to run update coroutine"
          "with wrong query class %s" % str(query))
 
-    cursor = yield from _execute_query_async(query)
+    cursor = yield from _execute_query_async(query, timeout=timeout)
     rowcount = cursor.rowcount
 
     yield from cursor.release
@@ -629,14 +629,14 @@ def update(query):
 
 
 @asyncio.coroutine
-def delete(query):
+def delete(query, *, timeout=None):
     """Perform DELETE query asynchronously. Returns number of rows deleted.
     """
     assert isinstance(query, peewee.DeleteQuery),\
         ("Error, trying to run delete coroutine"
          "with wrong query class %s" % str(query))
 
-    cursor = yield from _execute_query_async(query)
+    cursor = yield from _execute_query_async(query, timeout=timeout)
     rowcount = cursor.rowcount
 
     yield from cursor.release
@@ -644,7 +644,7 @@ def delete(query):
 
 
 @asyncio.coroutine
-def count(query, clear_limit=False):
+def count(query, clear_limit=False, *, timeout=None):
     """Perform *COUNT* aggregated query asynchronously.
 
     :return: number of objects in ``select()`` query
@@ -658,21 +658,21 @@ def count(query, clear_limit=False):
         sql, params = clone.sql()
         wrapped = 'SELECT COUNT(1) FROM (%s) AS wrapped_select' % sql
         raw_query = query.model_class.raw(wrapped, *params)
-        return (yield from scalar(raw_query)) or 0
+        return (yield from scalar(raw_query, timeout=timeout)) or 0
     else:
         # simple count()
         query = query.order_by()
         query._select = [peewee.fn.Count(peewee.SQL('*'))]
-        return (yield from scalar(query)) or 0
+        return (yield from scalar(query, timeout=timeout)) or 0
 
 
 @asyncio.coroutine
-def scalar(query, as_tuple=False):
+def scalar(query, as_tuple=False, *, timeout=None):
     """Get single value from ``select()`` query, i.e. for aggregation.
 
     :return: result is the same as after sync ``query.scalar()`` call
     """
-    cursor = yield from _execute_query_async(query)
+    cursor = yield from _execute_query_async(query, timeout=timeout)
     row = yield from cursor.fetchone()
 
     yield from cursor.release
@@ -683,12 +683,12 @@ def scalar(query, as_tuple=False):
 
 
 @asyncio.coroutine
-def raw_query(query):
+def raw_query(query, *, timeout=None):
     assert isinstance(query, peewee.RawQuery),\
         ("Error, trying to run delete coroutine"
          "with wrong query class %s" % str(query))
 
-    cursor = yield from _execute_query_async(query)
+    cursor = yield from _execute_query_async(query, timeout=timeout)
 
     result = AsyncRawQueryWrapper(cursor=cursor, query=query)
     try:
@@ -1518,10 +1518,10 @@ def _run_sql(database, operation, *args, **kwargs):
 
 
 @asyncio.coroutine
-def _execute_query_async(query):
+def _execute_query_async(query, *, timeout=None):
     """Execute query and return cursor object.
     """
-    return (yield from _run_sql(query.database, *query.sql()))
+    return (yield from _run_sql(query.database, *query.sql(), timeout=timeout))
 
 
 class TaskLocals:
