@@ -20,6 +20,7 @@ import contextlib
 import peewee
 import warnings
 import logging
+from psycopg2 import OperationalError
 
 logger = logging.getLogger('peewee.async')
 logger.addHandler(logging.NullHandler())
@@ -879,11 +880,10 @@ class AsyncDatabase:
         else:
             self._loop = loop
             self._async_wait = asyncio.Future(loop=self._loop)
-
+            self.connect_kwargs_async['timeout'] = timeout or self.connect_kwargs_async.get('timeout')
             conn = self._async_conn_cls(
                 database=self.database,
                 loop=self._loop,
-                timeout=timeout,
                 **self.connect_kwargs_async)
 
             try:
@@ -907,10 +907,11 @@ class AsyncDatabase:
             conn = self.transaction_conn_async()
         else:
             conn = None
-
         try:
             return (yield from self._async_conn.cursor(conn=conn))
-        except:
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             yield from self.close_async()
             raise
 
@@ -1043,12 +1044,16 @@ class AsyncPostgresqlConnection:
     def acquire(self):
         """Acquire connection from pool.
         """
+        logger.debug('Connection.acquire (conn=%r) pool (%d/%d) (task = %s)',
+                     self, self.pool.freesize, self.pool.size, id(asyncio.Task.current_task(loop=self.loop)))
         return (yield from self.pool.acquire())
 
     def release(self, conn):
         """Release connection to pool.
         """
         self.pool.release(conn)
+        logger.debug('Connection.release (conn=%r) pool (%d/%d) (task = %s)',
+                     self, self.pool.freesize, self.pool.size, id(asyncio.Task.current_task(loop=self.loop)))
 
     @asyncio.coroutine
     def connect(self):
@@ -1497,14 +1502,15 @@ def _get_exception_wrapper(database):
 def _run_sql(database, operation, *args, **kwargs):
     """Run SQL operation (query or command) against database.
     """
-    logger.debug((operation, args, kwargs))
 
     with _get_exception_wrapper(database):
         cursor = yield from database.cursor_async()
 
         try:
             yield from cursor.execute(operation, *args, **kwargs)
-        except:
+        except OperationalError as exc:
+            raise
+        except Exception as exc:
             yield from cursor.release
             raise
 
