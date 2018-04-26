@@ -658,6 +658,7 @@ def count(query, clear_limit=False, *, timeout=None):
         sql, params = clone.sql()
         wrapped = 'SELECT COUNT(1) FROM (%s) AS wrapped_select' % sql
         raw_query = query.model_class.raw(wrapped, *params)
+        raw_query.database = query.database
         return (yield from scalar(raw_query, timeout=timeout)) or 0
     else:
         # simple count()
