@@ -21,9 +21,17 @@ import peewee
 import warnings
 import logging
 from psycopg2 import OperationalError
+import sys
 
 logger = logging.getLogger('peewee.async')
 logger.addHandler(logging.NullHandler())
+
+PY_39 = sys.version_info >= (3, 9)
+
+if PY_37:
+    asyncio_current_task = asyncio.current_task
+else:
+    asyncio_current_task = asyncio.Task.current_task
 
 try:
     import aiopg
@@ -35,7 +43,7 @@ try:
 except ImportError:
     aiomysql = None
 
-__version__ = '0.5.7+ppl'
+__version__ = '0.5.8+ppl'
 
 __all__ = [
     ### High level API ###
@@ -1046,7 +1054,7 @@ class AsyncPostgresqlConnection:
         """Acquire connection from pool.
         """
         logger.debug('Connection.acquire (conn=%r) pool (%d/%d) (task = %s)',
-                     self, self.pool.freesize, self.pool.size, id(asyncio.Task.current_task(loop=self.loop)))
+                     self, self.pool.freesize, self.pool.size, id(asyncio_current_task(loop=self.loop)))
         return (yield from self.pool.acquire())
 
     def release(self, conn):
@@ -1054,7 +1062,7 @@ class AsyncPostgresqlConnection:
         """
         self.pool.release(conn)
         logger.debug('Connection.release (conn=%r) pool (%d/%d) (task = %s)',
-                     self, self.pool.freesize, self.pool.size, id(asyncio.Task.current_task(loop=self.loop)))
+                     self, self.pool.freesize, self.pool.size, id(asyncio_current_task(loop=self.loop)))
 
     @asyncio.coroutine
     def connect(self):
@@ -1406,7 +1414,7 @@ class transaction:
 
     @asyncio.coroutine
     def __aenter__(self):
-        if not asyncio.Task.current_task(loop=self.loop):
+        if not asyncio_current_task(loop=self.loop):
             raise RuntimeError("The transaction must run within a task")
         yield from self.db.push_transaction_async()
         if self.db.transaction_depth_async() == 1:
@@ -1570,7 +1578,7 @@ class TaskLocals:
         :param create: if argument is `True`, create empty dict
                        for task, default: `False`
         """
-        task = asyncio.Task.current_task(loop=self.loop)
+        task = asyncio_current_task(loop=self.loop)
         if task:
             task_id = id(task)
             if create and not task_id in self.data:

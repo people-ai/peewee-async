@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.5.7 (latest)
+## 0.5.8 (latest)
+
+- Fix asyncio Task depreciation
+
+## 0.5.7
 
 - #49, compatibility with peewee 2.8.6+
 - Fix: #50, NameError in `_swap_database` method
