@@ -176,7 +176,7 @@ class Manager:
             query = query.where(*conditions)
 
         try:
-            result = await self.execute(query.limit(1)) # diff
+            result = await self.execute(query.limit(1))
             return list(result)[0]
         except IndexError:
             raise model.DoesNotExist
