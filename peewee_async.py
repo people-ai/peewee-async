@@ -872,8 +872,9 @@ class AsyncDatabase:
 
             try:
                 await conn.connect()
-            except:
-                self._async_wait.cancel()
+            except Exception as e:
+                if not self._async_wait.done():
+                    self._async_wait.set_exception(e)
                 self._async_wait = None
                 raise
             else:
@@ -892,9 +893,9 @@ class AsyncDatabase:
             conn = None
         try:
             return (await self._async_conn.cursor(conn=conn))
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
+        # except asyncio.CancelledError:
+        #     raise
+        except:
             await self.close_async()
             raise
 
@@ -1360,21 +1361,21 @@ class transaction:
         self.loop = db.loop
 
     async def commit(self, begin=True):
-        await _run_sql(self.db, 'COMMIT')
+        await _run_no_result_sql(self.db, 'COMMIT')
         if begin:
-            await _run_sql(self.db, 'BEGIN')
+            await _run_no_result_sql(self.db, 'BEGIN')
 
     async def rollback(self, begin=True):
-        await _run_sql(self.db, 'ROLLBACK')
+        await _run_no_result_sql(self.db, 'ROLLBACK')
         if begin:
-            await _run_sql(self.db, 'BEGIN')
+            await _run_no_result_sql(self.db, 'BEGIN')
 
     async def __aenter__(self):
         if not asyncio_current_task(loop=self.loop):
             raise RuntimeError("The transaction must run within a task")
         await self.db.push_transaction_async()
         if self.db.transaction_depth_async() == 1:
-            await _run_sql(self.db, 'BEGIN')
+            await _run_no_result_sql(self.db, 'BEGIN')
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -1401,13 +1402,13 @@ class savepoint:
         self.quoted_sid = db.compiler().quote(self.sid)
 
     async def commit(self):
-        await _run_sql(self.db, 'RELEASE SAVEPOINT %s;' % self.quoted_sid)
+        await _run_no_result_sql(self.db, 'RELEASE SAVEPOINT %s;' % self.quoted_sid)
 
     async def rollback(self):
-        await _run_sql(self.db, 'ROLLBACK TO SAVEPOINT %s;' % self.quoted_sid)
+        await _run_no_result_sql(self.db, 'ROLLBACK TO SAVEPOINT %s;' % self.quoted_sid)
 
     async def __aenter__(self):
-        await _run_sql(self.db, 'SAVEPOINT %s;' % self.quoted_sid)
+        await _run_no_result_sql(self.db, 'SAVEPOINT %s;' % self.quoted_sid)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -1465,13 +1466,16 @@ async def _run_sql(database, operation, *args, **kwargs):
 
         try:
             await cursor.execute(operation, *args, **kwargs)
-        except OperationalError as exc:
-            raise
-        except Exception as exc:
+        except:
             await cursor.release
             raise
 
         return cursor
+
+
+async def _run_no_result_sql(database, operation, *args, **kwargs):
+    cursor = await _run_sql(database, operation, *args, **kwargs)
+    await cursor.release
 
 
 async def _execute_query_async(query, *, timeout=None):
