@@ -168,7 +168,7 @@ class Manager:
             model = source_
 
         conditions = list(args) + [(getattr(model, k) == v)
-                                   for k, v in kwargs.items()]
+            for k, v in kwargs.items()]
 
         if conditions:
             query = query.where(*conditions)
@@ -891,8 +891,6 @@ class AsyncDatabase:
             conn = None
         try:
             return (await self._async_conn.cursor(conn=conn))
-        # except asyncio.CancelledError:
-        #     raise
         except:
             await self.close_async()
             raise
